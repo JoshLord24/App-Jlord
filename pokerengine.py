@@ -44,6 +44,8 @@ if "player_hand" not in st.session_state:
 if "community_cards" not in st.session_state:
     st.session_state.community_cards = []
 
+# ------ Buttons on Streamlit ------
+
 col1, col2, col3, col4 = st.columns(4)
 
 if col1.button("Shuffle Deck", key="shuffle"):
