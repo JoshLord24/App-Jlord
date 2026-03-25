@@ -197,10 +197,16 @@ if col1.button("Shuffle Deck", key="shuffle"):
     st.session_state.community_cards = []
     st.write("Deck shuffled!")
 
-if col2.button("Deal Player Hands", key="deal_all"):
+if col2.button("Deal Other Hands", key="deal_all"):
     for player in st.session_state.players:
         player.receive_cards(st.session_state.deck.deal(2))
     st.success("Dealt 2 cards to each player")
+if col2.button("Deal Player Hand"):
+    if len(st.session_state.player_hand) == 0:
+        st.session_state.player_hand = st.session_state.deck.deal(2)
+        st.success("Player hand dealt")
+    else:
+        st.warning("Player hand already dealt")
 
 if col3.button("Burn + Turn", key="burn_turn"):
     if len(st.session_state.community_cards) == 0:
