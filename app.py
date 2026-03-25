@@ -19,8 +19,8 @@ def to_dataframe(self):
         })
 
 
-st.title("PokerStars")
-st.write("This is a simple Streamlit app to display poker data.")
+st.title("Cards")
+st.write("This is a simple Streamlit app to display a deck of cards.")
 deck = Deck().cards
 
 if st.button("Shuffle Deck"):
