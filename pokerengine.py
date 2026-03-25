@@ -49,75 +49,73 @@ class HandEvaluator:
     }
 
     @staticmethod
-    def card_value(card):
-        return Deck.rank_orders[card.rank]
-
-    def is_straight(values):
-        values = sorted(set(values))
-        if len(values) < 5:
-            return False
-        if set ([14, 2, 3, 4, 5]).issubset(values):
-            return True
-        for i in range(len(values) - 4):
-            window = values[i:i+5]
-            if window == list(range(window[0], window[0] + 5)):
-                return True, window[-1]
-        return False
-    
-    def evaluate_hand(self, hand, community_cards):
-        all_cards = hand + community_cards
-        values = sorted([self.card_value(card) for card in all_cards], reverse=True)
-        suits = [card.suit for card in all_cards]
+    def evaluate_5(cards):
+        values = sorted([HandEvaluator.hand_ranks[c.rank] for c in cards], reverse=True)
+        suits = [c.suit for c in cards]
         counts = Counter(values)
         is_flush = len(set(suits)) == 1
         is_straight, high_straight = HandEvaluator.is_straight(values)
 
-     # Straight Flush / Royal Flush
+        # Straight Flush / Royal Flush
         if is_flush and is_straight:
             if high_straight == 14:
-                return self.hand_ranks["Royal Flush"], [14]
-            return self.hand_ranks["Straight Flush"], [high_straight]
+                return HandEvaluator.hand_ranks["Royal Flush"], [14]
+            return HandEvaluator.hand_ranks["Straight Flush"], [high_straight]
 
         # Four of a Kind
         if 4 in counts.values():
             four = max(k for k, v in counts.items() if v == 4)
             kicker = max(k for k, v in counts.items() if v == 1)
-            return self.hand_ranks["Four of a Kind"], [four, kicker]
+            return HandEvaluator.hand_ranks["Four of a Kind"], [four, kicker]
 
         # Full House
         if sorted(counts.values()) == [2, 3]:
             three = max(k for k, v in counts.items() if v == 3)
             pair = max(k for k, v in counts.items() if v == 2)
-            return self.hand_ranks["Full House"], [three, pair]
-
+            return HandEvaluator.hand_ranks["Full House"], [three, pair]
+        
         # Flush
         if is_flush:
-            return self.hand_ranks["Flush"], values
+            return HandEvaluator.hand_ranks["Flush"], values
+        
         # Straight
         if is_straight:
-            return self.hand_ranks["Straight"], [high_straight]    
-
-
+            return HandEvaluator.hand_ranks["Straight"], [high_straight]
+        
+        # Three of a Kind
         if 3 in counts.values():
             three = max(k for k, v in counts.items() if v == 3)
-            kickers = sorted([k for k, v in counts.items() if v == 1], reverse=True)
-            return self.hand_ranks["Three of a Kind"], [three] + kickers
-
+            kickers = sorted((k for k, v in counts.items() if v == 1), reverse=True)
+            return HandEvaluator.hand_ranks["Three of a Kind"], [three] + kickers
+        
         # Two Pair
         if list(counts.values()).count(2) == 2:
-            pairs = sorted([k for k, v in counts.items() if v == 2], reverse=True)
+            pairs = sorted((k for k, v in counts.items() if v == 2), reverse=True)
             kicker = max(k for k, v in counts.items() if v == 1)
-            return self.hand_ranks["Two Pair"], pairs + [kicker]
-
-        # One Pair
+            return HandEvaluator.hand_ranks["Two Pair"], pairs + [kicker]
+        
+        #One Pair
         if 2 in counts.values():
             pair = max(k for k, v in counts.items() if v == 2)
-            kickers = sorted([k for k, v in counts.items() if v == 1], reverse=True)
-            return self.hand_ranks["One Pair"], [pair] + kickers
-
-        # High Card
-        return self.hand_ranks["High Card"], values
+            kickers = sorted((k for k, v in counts.items() if v == 1), reverse=True)
+            return HandEvaluator.hand_ranks["One Pair"], [pair] + kickers
         
+        # High Card
+        return HandEvaluator.hand_ranks["High Card"], values
+    
+    @staticmethod
+    def is_straight(values):
+        unique_values = sorted(set(values), reverse=True)
+        if len(unique_values) < 5:
+            return False, None
+        for i in range(len(unique_values) - 4):
+            if unique_values[i] - unique_values[i + 4] == 4:
+                return True, unique_values[i]
+        # Check for Ace-low straight (A-2-3-4-5)
+        if set([14, 2, 3, 4, 5]).issubset(set(values)):
+            return True, 5
+        return False, None
+    
     @staticmethod
     def best_hand(cards7):
         best = None
