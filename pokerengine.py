@@ -55,11 +55,10 @@ if col1.button("Shuffle Deck", key="shuffle"):
 
 if col2.button("Deal Player Hand", key="deal_hand"):
     st.session_state.player_hand = st.session_state.deck.deal(2)
-    st.write("Player Hand:")
     for card in st.session_state.player_hand:
         st.write(str(card))
 
-if col3.button("Burn + Turn"):
+if col3.button("Burn + Turn", key="burn_turn"):
     if len(st.session_state.community_cards) == 0:
         st.session_state.deck.deal(1)  # burn
         st.session_state.community_cards.extend(st.session_state.deck.deal(3))  # flop
