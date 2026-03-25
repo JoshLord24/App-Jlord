@@ -46,33 +46,36 @@ if "community_cards" not in st.session_state:
 
 col1, col2, col3, col4 = st.columns(4)
 
-if col1.button("Shuffle Deck"):
+if col1.button("Shuffle Deck", key="shuffle"):
     st.session_state.deck = Deck()  # Reset the deck
     st.session_state.deck.shuffle()
     st.session_state.player_hand = []
     st.session_state.community_cards = []
     st.write("Deck shuffled!")
 
-if col2.button("Deal Player Hand"):
+if col2.button("Deal Player Hand", key="deal_hand"):
     st.session_state.player_hand = st.session_state.deck.deal(2)
     st.write("Player Hand:")
     for card in st.session_state.player_hand:
         st.write(str(card))
 
-if col3.button("Burn & Turn"):
-    if len(st.session_state.deck.cards) == 0:
-        st.session_state.deck.deal(1) # Burn one card
-        st.session_state.community_cards.extend(st.session_state.deck.deal(3)) # Turn the Flop
-    elif len(st.session_state.deck.cards) == 3:
-        st.session_state.deck.deal(1) # Burn one card
-        st.session_state.community_cards.extend(st.session_state.deck.deal(1)) # Turn the Turn 
-    elif len(st.session_state.deck.cards) == 4:  
-        st.session_state.deck.deal(1) # Burn one card
-        st.session_state.community_cards.extend(st.session_state.deck.deal(1)) # Turn the River
-    else: 
-        st.write("All community cards have already been dealt.")
+if col3.button("Burn + Turn"):
+    if len(st.session_state.community_cards) == 0:
+        st.session_state.deck.deal(1)  # burn
+        st.session_state.community_cards.extend(st.session_state.deck.deal(3))  # flop
+        st.success("Flop dealt")
+    elif len(st.session_state.community_cards) == 3:
+        st.session_state.deck.deal(1)  # burn
+        st.session_state.community_cards.extend(st.session_state.deck.deal(1))  # turn
+        st.success("Turn dealt")
+    elif len(st.session_state.community_cards) == 4:
+        st.session_state.deck.deal(1)  # burn
+        st.session_state.community_cards.extend(st.session_state.deck.deal(1))  # river
+        st.success("River dealt")
+    else:
+        st.warning("All community cards already dealt")
 
-if col4.button("Reset Game"):
+if col4.button("Reset Game", key="reset"):
     st.session_state.deck = Deck()  # Reset the deck
     st.session_state.player_hand = []
     st.session_state.community_cards = []
