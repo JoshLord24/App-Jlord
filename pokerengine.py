@@ -118,8 +118,8 @@ class HandEvaluator:
         # High Card
         return self.hand_ranks["High Card"], values
         
-@staticmethod
-def best_hand(cards7):
+    @staticmethod
+    def best_hand(cards7):
         best = None
         best_score = None
 
