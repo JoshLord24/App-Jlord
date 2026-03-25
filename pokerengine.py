@@ -63,7 +63,7 @@ class HandEvaluator:
 
     @staticmethod
     def evaluate_5(cards):
-        values = sorted([HandEvaluator.hand_ranks[c.rank] for c in cards], reverse=True)
+        values = sorted([Deck.rank_orders[c.rank] for c in cards], reverse=True)
         suits = [c.suit for c in cards]
         counts = Counter(values)
         is_flush = len(set(suits)) == 1
@@ -141,6 +141,26 @@ class HandEvaluator:
                 best = combo
 
         return best_score, best
+    
+class Player:
+    def __init__(self, name):
+        self.name = name
+        self.hand = []
+        self.best_hand = None
+        self.best_score = None
+    
+    def receive_cards(self, cards):
+        self.hand.extend(cards)
+    
+    def evaluate_hand(self, community_cards):
+        all_cards = self.hand + community_cards
+        self.best_score, self.best_hand = HandEvaluator.best_hand(all_cards)
+
+
+num_players = st.number_input("Number of Players", min_value=2, max_value=9, value=2, step=1)
+
+if st.button("Number of Players"):
+    st.session_state.players = [Player(f"Player {i+1}") for i in range(num_players)]
 
 st.title("Poker Engine")
 st.write("This is a simple Streamlit app to display poker data.")
@@ -154,6 +174,8 @@ if "player_hand" not in st.session_state:
     st.session_state.player_hand = []
 if "community_cards" not in st.session_state:
     st.session_state.community_cards = []
+if "players" not in st.session_state:
+    st.session_state.players = []
 
 # ------ Buttons on Streamlit ------
 
