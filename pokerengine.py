@@ -179,7 +179,16 @@ if "players" not in st.session_state:
 
 # ------ Buttons on Streamlit ------
 
-col1, col2, col3, col4 = st.columns(4)
+if st.button("Evaluate Hands", key="eval"):
+    community = st.session_state.community_cards
+
+    for player in st.session_state.players:
+        player.evaluate(community)
+
+    st.success("All hands evaluated")
+
+
+col1, col2, col3, col4, col5 = st.columns(5)
 
 if col1.button("Shuffle Deck", key="shuffle"):
     st.session_state.deck = Deck()  # Reset the deck
@@ -188,10 +197,10 @@ if col1.button("Shuffle Deck", key="shuffle"):
     st.session_state.community_cards = []
     st.write("Deck shuffled!")
 
-if col2.button("Deal Player Hand", key="deal_hand"):
-    st.session_state.player_hand = st.session_state.deck.deal(2)
-    for card in st.session_state.player_hand:
-        st.write(str(card))
+if col2.button("Deal Player Hands", key="deal_all"):
+    for player in st.session_state.players:
+        player.receive_cards(st.session_state.deck.deal(2))
+    st.success("Dealt 2 cards to each player")
 
 if col3.button("Burn + Turn", key="burn_turn"):
     if len(st.session_state.community_cards) == 0:
@@ -209,7 +218,18 @@ if col3.button("Burn + Turn", key="burn_turn"):
     else:
         st.warning("All community cards already dealt")
 
-if col4.button("Reset Game", key="reset"):
+if col4.button("Show Best Hands", key="show_hands"):
+    if st.session_state.players and st.session_state.community_cards:
+        for player in st.session_state.players:
+            player.evaluate(st.session_state.community_cards)
+            rank_name = [name for name, val in HandEvaluator.hand_ranks.items() if val == player.best_score[0]][0]
+            st.subheader(f"{player.name} is the winner with {rank_name}!")
+            st.write(f"{player.name}: {rank_name} with best hand {[str(c) for c in player.best_hand]}")
+
+    else:
+        st.warning("Deal player hands and community cards first")
+
+if col5.button("Reset Game", key="reset"):
     st.session_state.deck = Deck()  # Reset the deck
     st.session_state.player_hand = []
     st.session_state.community_cards = []
@@ -243,6 +263,7 @@ if st.session_state.player_hand and st.session_state.community_cards:
     st.write(f"**Score Details:** {score}")
 else:
     st.write("Deal player hand and community cards to evaluate.")
+
 
 st.subheader("Remaining Deck")
 st.dataframe(st.session_state.deck.to_dataframe())
