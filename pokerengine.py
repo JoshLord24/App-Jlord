@@ -157,13 +157,12 @@ class Player:
         self.best_score, self.best_hand = HandEvaluator.best_hand(all_cards)
 
 
-num_players = st.number_input("Number of Players", min_value=2, max_value=9, value=2, step=1)
-
-if st.button("Number of Players"):
-    st.session_state.players = [Player(f"Player {i+1}") for i in range(num_players)]
-
 st.title("Poker Engine")
 st.write("This is a simple Streamlit app to display poker data.")
+
+num_players = st.number_input("Number of Players", min_value=2, max_value=9, value=2, step=1)
+if st.button("Number of Players"):
+    st.session_state.players = [Player(f"Player {i+1}") for i in range(num_players)]
 
 if "deck" not in st.session_state:
     st.session_state.deck = Deck()
@@ -257,6 +256,13 @@ else:
     st.write("No community cards dealt yet.")
 
 st.subheader("Best Possible Hand")
+
+st.subheader("Player Hands")
+for player in st.session_state.players:
+    st.write(f"**{player.name}:** {[str(c) for c in player.hand]}")
+    if player.best_hand:
+        st.write(f"Best 5: {[str(c) for c in player.best_hand]}")
+        st.write(f"Score: {player.best_score}")
 
 if st.session_state.player_hand and st.session_state.community_cards:
     all_cards = st.session_state.player_hand + st.session_state.community_cards
