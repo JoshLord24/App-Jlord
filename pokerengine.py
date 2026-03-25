@@ -118,16 +118,18 @@ class HandEvaluator:
         # High Card
         return self.hand_ranks["High Card"], values
         
+@staticmethod
+def best_hand(cards7):
+        best = None
+        best_score = None
 
-    @staticmethod
-    def best_hand(hand, community_cards):
-        all_cards = hand + community_cards
-        best_rank = "High Card"
-        for combo in combinations(all_cards, 5):
-            rank = HandEvaluator().evaluate_hand(list(combo), [])
-            if HandEvaluator.hand_ranks[rank] > HandEvaluator.hand_ranks[best_rank]:
-                best_rank = rank
-        return best_rank
+        for combo in combinations(cards7, 5):
+            score = HandEvaluator.evaluate_5(combo)
+            if best_score is None or score > best_score:
+                best_score = score
+                best = combo
+
+        return best_score, best
 
 st.title("Poker Engine")
 st.write("This is a simple Streamlit app to display poker data.")
