@@ -150,9 +150,9 @@ class Player:
         self.best_score = None
     
     def receive_cards(self, cards):
-        self.hand.extend(cards)
+        self.hand = cards
     
-    def evaluate_hand(self, community_cards):
+    def evaluate(self, community_cards):
         all_cards = self.hand + community_cards
         self.best_score, self.best_hand = HandEvaluator.best_hand(all_cards)
 
@@ -166,9 +166,6 @@ if st.button("Number of Players"):
 
 if "deck" not in st.session_state:
     st.session_state.deck = Deck()
-if st.button("Shuffle Deck"):
-    st.session_state.deck.shuffle()
-    st.write("Deck shuffled!")
 if "player_hand" not in st.session_state:
     st.session_state.player_hand = []
 if "community_cards" not in st.session_state:
@@ -177,15 +174,6 @@ if "players" not in st.session_state:
     st.session_state.players = []
 
 # ------ Buttons on Streamlit ------
-
-if st.button("Evaluate Hands", key="eval"):
-    community = st.session_state.community_cards
-
-    for player in st.session_state.players:
-        player.evaluate(community)
-
-    st.success("All hands evaluated")
-
 
 col1, col2, col3, col4, col5 = st.columns(5)
 
@@ -227,10 +215,19 @@ if col4.button("Show Best Hands", key="show_hands"):
     if st.session_state.players and st.session_state.community_cards:
         for player in st.session_state.players:
             player.evaluate(st.session_state.community_cards)
-            rank_name = [name for name, val in HandEvaluator.hand_ranks.items() if val == player.best_score[0]][0]
-            st.subheader(f"{player.name} is the winner with {rank_name}!")
-            st.write(f"{player.name}: {rank_name} with best hand {[str(c) for c in player.best_hand]}")
 
+        # sort players by best_score (hand rank + tiebreakers)
+        ranked = sorted(
+            st.session_state.players,
+            key=lambda p: p.best_score,
+            reverse=True
+        )
+        winner = ranked[0]
+
+        rank_name = [name for name, val in HandEvaluator.hand_ranks.items() if val == winner.best_score[0]][0]
+
+        st.subheader(f"{winner.name} is the winner with {rank_name}!")
+        st.write(f"{winner.name}: {rank_name} with best hand {[str(c) for c in winner.best_hand]}")
     else:
         st.warning("Deal player hands and community cards first")
 
