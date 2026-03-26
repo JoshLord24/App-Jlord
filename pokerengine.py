@@ -12,6 +12,7 @@ class Card:
     def __str__(self):
         return f"{self.rank} of {self.suit}"
     
+    
 class Deck:
     suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
     ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King', 'Ace']
@@ -161,7 +162,7 @@ st.title("Poker Engine")
 st.write("This is a simple Streamlit app to display poker data.")
 
 num_players = st.number_input("Number of Players", min_value=2, max_value=9, value=2, step=1)
-if st.button("Number of Players"):
+if st.button("Create Players", key="create_players"):
     st.session_state.players = [Player(f"Player {i+1}") for i in range(num_players)]
 
 if "deck" not in st.session_state:
@@ -260,8 +261,21 @@ for player in st.session_state.players:
         st.write(f"**{player.name}:** No hand evaluated yet.")
 
 st.subheader("Player Hands")
-for player in st.session_state.players:
-    st.write(f"**{player.name}:** {[str(c) for c in player.hand]}")
+def pretty_card(card):
+    suit_symbols = {
+        "Hearts": "♥",
+        "Diamonds": "♦",
+        "Clubs": "♣",
+        "Spades": "♠"
+    }
+    symbol = suit_symbols[card.suit]
+    color = "red" if card.suit in ["Hearts", "Diamonds"] else "black"
+    return f"<span style='color:{color}'>{card.rank} {symbol}</span>"
+
+st.markdown(f"**{player.name}:**", unsafe_allow_html=True)
+for card in player.hand:
+    st.markdown(pretty_card(card), unsafe_allow_html=True)
+
     if player.best_hand:
         st.write(f"Best 5: {[str(c) for c in player.best_hand]}")
         st.write(f"Score: {player.best_score}")
