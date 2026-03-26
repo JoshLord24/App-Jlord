@@ -253,6 +253,11 @@ else:
     st.write("No community cards dealt yet.")
 
 st.subheader("Best Possible Hand")
+for player in st.session_state.players:
+    if player.best_hand:
+        st.write(f"**{player.name}:** {[str(c) for c in player.best_hand]} (Score: {player.best_score})")
+    else:
+        st.write(f"**{player.name}:** No hand evaluated yet.")
 
 st.subheader("Player Hands")
 for player in st.session_state.players:
@@ -260,6 +265,7 @@ for player in st.session_state.players:
     if player.best_hand:
         st.write(f"Best 5: {[str(c) for c in player.best_hand]}")
         st.write(f"Score: {player.best_score}")
+        st.write(f"Hand: {[name for name, val in HandEvaluator.hand_ranks.items() if val == player.best_score[0]][0]}")
 
 if st.session_state.player_hand and st.session_state.community_cards:
     all_cards = st.session_state.player_hand + st.session_state.community_cards
