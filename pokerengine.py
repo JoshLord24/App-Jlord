@@ -12,24 +12,81 @@ class Card:
     def __str__(self):
         return f"{self.rank} of {self.suit}"
     
+def pretty_card(card):
+    suit_symbols = {
+        "Hearts": "♥",
+        "Diamonds": "♦",
+        "Clubs": "♣",
+        "Spades": "♠"
+    }
+    symbol = suit_symbols[card.suit]
+    color = "red" if card.suit in ["Hearts", "Diamonds"] else "black"
+    return f"<span style='color:{color}; font-size:20px;'>{card.rank} {symbol}</span>"
+
+def display_hand(player, is_human):
+    game = st.session_state.game
+
+    st.markdown(f"**{player.name}:**", unsafe_allow_html=True)
+
+    visible = (
+        is_human or
+        game.show_opponents or
+        GameState.phases[game.phase_index] == "Showdown"
+    )
+
+    cols = st.columns(len(player.hand))
+    for col, card in zip(cols, player.hand):
+        if visible:
+            col.markdown(pretty_card(card), unsafe_allow_html=True)
+        else:
+            col.markdown("🂠")
+
+def display_cards(label, cards):
+    st.markdown(f"**{label}:**", unsafe_allow_html=True)
+    cols = st.columns(len(cards))
+    for col, card in zip(cols, cards):
+        col.markdown(pretty_card(card), unsafe_allow_html=True)
+
+def ai_action(player):
+    if player.folded:
+        return
+
+    game = st.session_state.game
+
+    # Very basic AI - Develop more later
+    if game.current_bet == 0:
+        action = random.choice(["check", "check", "fold"])
+    else:
+        action = random.choice(["call", "fold"])
+
+    if action == "check":
+        check(player)
+    elif action == "call":
+        call(player)
+    elif action == "fold":
+        fold(player)
     
+def run_betting_round():
+    game = st.session_state.game
+    players = st.session_state.players
+
+    active_players = [p for p in players if not p.folded]
+
+    if len(active_players) == 1:
+        game.phase = "showdown"
+        return
+
+    current = players[game.active_player_index]
+
+    # AI turns
+    if current.name != "You":
+        ai_action(current)
+        return
+
 class Deck:
     suits = ['Hearts', 'Diamonds', 'Clubs', 'Spades']
     ranks = ['2', '3', '4', '5', '6', '7', '8', '9', '10', 'Jack', 'Queen', 'King', 'Ace']
-    rank_orders = {"2": 2, 
-                   "3": 3, 
-                   "4": 4, 
-                   "5": 5, 
-                   "6": 6,
-                   "7": 7, 
-                   "8": 8, 
-                   "9": 9, 
-                   "10": 10,
-                   "Jack": 11, 
-                   "Queen": 12, 
-                   "King": 13, 
-                   "Ace": 14
-            }
+    rank_orders = {r: i+2 for i, r in enumerate(ranks)}
 
     def __init__(self):
         self.cards = [Card(suit, rank) for suit in self.suits for rank in self.ranks]
@@ -47,6 +104,67 @@ class Deck:
             "Suit": [card.suit for card in self.cards],
             "Card": [str(card) for card in self.cards]
         })
+
+class Player:
+    def __init__(self, name):
+        self.name = name
+        self.hand = []
+        self.folded = False
+        self.current_bet = 0
+        self.chips = 1000
+        self.best_score = None
+
+    def reset(self):
+        self.hand = []
+        self.folded = False
+        self.current_bet = 0
+        self.best_score = None
+
+class GameState:
+    phases = ["Preflop", "Flop", "Turn", "River", "Showdown"]
+    
+    def __init__(self):
+        self.phase_index = 0
+        self.show_opponents = False
+        self.pot = 0
+        self.current_bet = 0
+        self.active_player_index = 0
+        self.betting_round_active = False
+    
+    def __init__(self):
+        self.phase_index = 0
+        self.show_opponents = False
+        self.pot = 0
+        self.current_bet = 0
+        self.active_player_index = 0
+        self.betting_round_active = False
+    
+    def advance_game(self):
+        game = st.session_state.game
+        deck = st.session_state.deck
+
+        if game.phase_index == 0:  # Pre-Flop
+            deck.shuffle()
+            for player in st.session_state.players:
+                player.receive_cards(deck.deal(2))
+            game.phase_index += 1
+        elif game.phase_index == 1:  # Flop
+            deck.deal(1)  # burn
+            game.community_cards.extend(deck.deal(3))  # flop
+            game.phase_index += 1
+        elif game.phase_index == 2:  # Turn
+            deck.deal(1)  # burn
+            game.community_cards.extend(deck.deal(1))  # turn
+            game.phase_index += 1
+        elif game.phase_index == 3:  # River
+            deck.deal(1)  # burn
+            game.community_cards.extend(deck.deal(1))  # river
+            game.phase_index += 1
+        elif game.phase_index == 4:  # Showdown
+            for player in st.session_state.players:                
+                player.evaluate(game.community_cards)
+            game.phase_index += 1
+
 
 class HandEvaluator:
     hand_ranks = {
@@ -143,156 +261,200 @@ class HandEvaluator:
 
         return best_score, best
     
-class Player:
-    def __init__(self, name):
-        self.name = name
-        self.hand = []
-        self.best_hand = None
-        self.best_score = None
+# Game Logic
+
+def next_player():
+    game = st.session_state.game
+    players = st.session_state.players
+
+    if all(p.folded for p in st.session_state.players):        
+        return
+
+    while True:
+        game.active_player_index = (game.active_player_index + 1) % len(players)
+        if not players[game.active_player_index].folded:
+            break
+
+def bet(player, amount):
+    g = st.session_state.game
+
+    diff = amount - player.current_bet
+    player.chips -= diff
+    player.current_bet = amount
+    g.pot += diff
+    g.current_bet = max(g.current_bet, amount)
+
+    next_player()
+
+def check(player):
+    next_player()
+    check_betting_complete()
+
+def call(player):
+    game = st.session_state.game
+    to_call = game.current_bet - player.current_bet
+
+    player.chips -= to_call
+    player.current_bet += to_call
+    game.pot += to_call
+
+    next_player()
+    check_betting_complete()
+
+def fold(player):
+    player.folded = True
+    next_player()
+    check_betting_complete()
+
+def check_betting_complete():
+    game = st.session_state.game
+    players = [p for p in st.session_state.players if not p.folded]
+
+    bets = [p.current_bet for p in players]
+
+    if len(set(bets)) == 1:
+        game.betting_round_active = False
     
-    def receive_cards(self, cards):
-        self.hand = cards
-    
-    def evaluate(self, community_cards):
-        all_cards = self.hand + community_cards
-        self.best_score, self.best_hand = HandEvaluator.best_hand(all_cards)
+def start_hand():
+    st.session_state.deck = Deck()
+    st.session_state.deck.shuffle()
+
+    g = st.session_state.game
+    players = st.session_state.players
+
+    for p in players:
+        p.reset()
+
+    g.phase_index = 0
+    g.pot = 0
+    g.current_bet = 0
+
+    # move dealer
+    g.dealer = (g.dealer + 1) % len(players)
+
+    # blinds
+    sb = (g.dealer + 1) % len(players)
+    bb = (g.dealer + 2) % len(players)
+
+    bet(players[sb], g.small_blind)
+    bet(players[bb], g.big_blind)
+
+    g.active_player = (bb + 1) % len(players)
+
+    # deal
+    for p in players:
+        p.hand = st.session_state.deck.deal(2)
+
+    g.betting_active = True
 
 
-st.title("Poker Engine")
-st.write("This is a simple Streamlit app to display poker data.")
+# User Interface (UI Display)
+
+st.title("Poker Simulator")
+
 
 num_players = st.number_input("Number of Players", min_value=2, max_value=9, value=2, step=1)
 if st.button("Create Players", key="create_players"):
-    st.session_state.players = [Player(f"Player {i+1}") for i in range(num_players)]
+    st.session_state.players = [Player("You")] + [
+        Player(f"AI {i}") for i in range(1, num_players)
+    ]
 
 if "deck" not in st.session_state:
     st.session_state.deck = Deck()
-if "player_hand" not in st.session_state:
-    st.session_state.player_hand = []
-if "community_cards" not in st.session_state:
-    st.session_state.community_cards = []
+if "game" not in st.session_state:
+    st.session_state.game = GameState()
 if "players" not in st.session_state:
     st.session_state.players = []
 
-# ------ Buttons on Streamlit ------
+# Controls
 
-col1, col2, col3, col4, col5 = st.columns(5)
+col1, col2 = st.columns(2)
 
-if col1.button("Shuffle Deck", key="shuffle"):
-    st.session_state.deck = Deck()  # Reset the deck
-    st.session_state.deck.shuffle()
-    st.session_state.player_hand = []
-    st.session_state.community_cards = []
-    st.write("Deck shuffled!")
+if col1.button("Start Hand"):
+    start_hand()
 
-if col2.button("Deal Other Hands", key="deal_all"):
+
+# Display
+st.subheader(f"Pot: {st.session_state.game.pot}")
+
+for i, p in enumerate(st.session_state.players):
+    st.write(f"{p.name} | Chips: {p.chips} {'(Folded)' if p.folded else ''}")
+
+
+def deal_player_hands():
+    deck = st.session_state.deck
     for player in st.session_state.players:
         player.receive_cards(st.session_state.deck.deal(2))
-    st.success("Dealt 2 cards to each player")
-if col2.button("Deal Player Hand"):
-    if len(st.session_state.player_hand) == 0:
-        st.session_state.player_hand = st.session_state.deck.deal(2)
-        st.success("Player hand dealt")
-    else:
-        st.warning("Player hand already dealt")
 
-if col3.button("Burn + Turn", key="burn_turn"):
-    if len(st.session_state.community_cards) == 0:
-        st.session_state.deck.deal(1)  # burn
-        st.session_state.community_cards.extend(st.session_state.deck.deal(3))  # flop
-        st.success("Flop dealt")
-    elif len(st.session_state.community_cards) == 3:
-        st.session_state.deck.deal(1)  # burn
-        st.session_state.community_cards.extend(st.session_state.deck.deal(1))  # turn
-        st.success("Turn dealt")
-    elif len(st.session_state.community_cards) == 4:
-        st.session_state.deck.deal(1)  # burn
-        st.session_state.community_cards.extend(st.session_state.deck.deal(1))  # river
-        st.success("River dealt")
-    else:
-        st.warning("All community cards already dealt")
+def advance_game():
+    game = st.session_state.game
+    deck = st.session_state.deck
 
-if col4.button("Show Best Hands", key="show_hands"):
-    if st.session_state.players and st.session_state.community_cards:
+    if game.betting_round_active:
+        st.warning("Finish Betting Round")
+        return
+    if all(p.folded for p in player):
+        return
+    if game.phase_index == 0:  # Pre-Flop
+        deck.shuffle()
+        for player in game.players:
+            player.receive_cards(deck.deal(2))
+            game.phase_index += 1
+            game.betting_round_active = True
+            game.current_bet = 0
+            for player in st.session_state.players:
+                player.current_bet = 0
+    elif game.phase_index == 1:  # Flop
+        deck.deal(1)  # burn
+        game.community_cards.extend(deck.deal(3))  # flop
+        game.phase_index += 1
+        game_phase = GameState.phases[game.phase_index]
+        game.betting_round_active = True
+        game.current_bet = 0
         for player in st.session_state.players:
-            player.evaluate(st.session_state.community_cards)
+            player.current_bet = 0
+        st.write(f"{game_phase}")
+    elif game.phase_index == 2:  # Turn
+        deck.deal(1)  # burn
+        game.community_cards.extend(deck.deal(1))  # turn
+        game.phase_index += 1
+        game.betting_round_active = True
+        game.current_bet = 0
+        for player in st.session_state.players:
+            player.current_bet = 0
+        st.write(f"{GameState.phases[game.phase_index]}")
+    elif game.phase_index == 3:  # River
+        deck.deal(1)  # burn
+        game.community_cards.extend(deck.deal(1))  # river
+        game.phase_index += 1
+        game.betting_round_active = True
+        game.current_bet = 0
+        for player in st.session_state.players:
+            player.current_bet = 0
+        st.write(f"{GameState.phases[game.phase_index]}")
+    elif game.phase_index == 4:  # Showdown
+        for player in game.players:
+            player.evaluate(game.community_cards)
+        game.phase_index += 1
+        st.write("Showdown!")
 
-        # sort players by best_score (hand rank + tiebreakers)
-        ranked = sorted(
-            st.session_state.players,
-            key=lambda p: p.best_score,
-            reverse=True
-        )
-        winner = ranked[0]
-
-        rank_name = [name for name, val in HandEvaluator.hand_ranks.items() if val == winner.best_score[0]][0]
-
-        st.subheader(f"{winner.name} is the winner with {rank_name}!")
-        st.write(f"{winner.name}: {rank_name} with best hand {[str(c) for c in winner.best_hand]}")
-    else:
-        st.warning("Deal player hands and community cards first")
-
-if col5.button("Reset Game", key="reset"):
+def new_hand():
     st.session_state.deck = Deck()  # Reset the deck
-    st.session_state.player_hand = []
+    st.session_state.deck.shuffle()
     st.session_state.community_cards = []
-    st.write("Game reset.")
-
-# ------ Display ------
-st.subheader("Player Hand")
-if st.session_state.player_hand:
-    for card in st.session_state.player_hand:
-        st.write(str(card))
-else:
-    st.write("No cards in player hand.")
-
-st.subheader("Community Cards")
-if st.session_state.community_cards:
-    for card in st.session_state.community_cards:
-        st.write(str(card))
-else:    
-    st.write("No community cards dealt yet.")
-
-st.subheader("Best Possible Hand")
-for player in st.session_state.players:
-    if player.best_hand:
-        st.write(f"**{player.name}:** {[str(c) for c in player.best_hand]} (Score: {player.best_score})")
-    else:
-        st.write(f"**{player.name}:** No hand evaluated yet.")
-
-st.subheader("Player Hands")
-def pretty_card(card):
-    suit_symbols = {
-        "Hearts": "♥",
-        "Diamonds": "♦",
-        "Clubs": "♣",
-        "Spades": "♠"
-    }
-    symbol = suit_symbols[card.suit]
-    color = "red" if card.suit in ["Hearts", "Diamonds"] else "black"
-    return f"<span style='color:{color}'>{card.rank} {symbol}</span>"
-
-st.markdown(f"**{player.name}:**", unsafe_allow_html=True)
-for card in player.hand:
-    st.markdown(pretty_card(card), unsafe_allow_html=True)
-
-    if player.best_hand:
-        st.write(f"Best 5: {[str(c) for c in player.best_hand]}")
-        st.write(f"Score: {player.best_score}")
-        st.write(f"Hand: {[name for name, val in HandEvaluator.hand_ranks.items() if val == player.best_score[0]][0]}")
-
-if st.session_state.player_hand and st.session_state.community_cards:
-    all_cards = st.session_state.player_hand + st.session_state.community_cards
-    score, best5 = HandEvaluator.best_hand(all_cards)
-
-    rank_name = [name for name, val in HandEvaluator.hand_ranks.items() if val == score[0]][0]
-
-    st.write(f"**Hand Rank:** {rank_name}")
-    st.write(f"**Best 5 Cards:** {[str(c) for c in best5]}")
-    st.write(f"**Score Details:** {score}")
-else:
-    st.write("Deal player hand and community cards to evaluate.")
+    for player in st.session_state.players:
+        player.hand = []
+        player.folded = False
+        player.current_bet = 0
+    st.session_state.community_cards = []
+    st.session_state.game.phase_index = 0
+    game = st.session_state.game
+    game.pot = 0
+    game.current_bet = 0
+    game.active_player_index = 0
+    game.betting_round_active = True
 
 
-st.subheader("Remaining Deck")
-st.dataframe(st.session_state.deck.to_dataframe())
+
+
+
