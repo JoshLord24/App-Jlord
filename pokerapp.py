@@ -219,24 +219,23 @@ def get_hand_name(score):
 def display_hand(player_or_cards, is_human=False, label=None, reveal=False, is_community=False):
     if isinstance(player_or_cards, list):
         cards = player_or_cards
-        name = label or "Hand"
+        name = label or "Community Cards"
     else:
         cards = getattr(player_or_cards, "hand", [])
         name = getattr(player_or_cards, "name", "Player") if label is None else label
-
+ 
     if not cards:
-        if is_community:
-            st.markdown(f"**{name}:** —")
-        else:
-            st.write(f"{name} has no cards.")
+        placeholder = "—" if is_community else "*(no cards)*"
+        st.markdown(f"**{name}:** {placeholder}", unsafe_allow_html=True)
         return
-
+ 
+    # Community cards are ALWAYS shown face-up; human cards always shown;
+    # AI cards hidden unless reveal=True
     if is_community or is_human or reveal:
-        hand_str = " | ".join(str(card) for card in cards)
+        hand_str = "  ".join(Card(c) for c in cards)
+        st.markdown(f"**{name}:** {hand_str}", unsafe_allow_html=True)
     else:
-        hand_str = "🂠 " * len(cards)
-
-    st.markdown(f"**{name}:** {hand_str}")
+        st.markdown(f"**{name}:** {'🂠 ' * len(cards)}")
 
 # ----- GAME LOGIC --------
 
@@ -432,16 +431,25 @@ st.header(f"Phase: {g.round_phase}")
 st.write(f"Last Action: {g.last_action}")
 st.write(f"Pot: {g.pot}")
 
-display_hand(g.community_cards, label="Community Cards")
-
+display_hand(g.community_cards, label="Community Cards", is_community=True)
+ 
+st.divider()
+ 
+# Player hands
 for i, player in enumerate(players):
-    chips_label = f"{player.name} (chips: {player.chips}, bet: {player.current_bet})"
+    status = ""
     if player.folded:
-        chips_label += " [FOLDED]"
+        status = " 🚫 FOLDED"
+    elif g.current_player() == player:
+        status = " ⬅ current turn"
+    label = f"{player.name}{status} — chips: {player.chips}  |  bet: {player.current_bet}"
     if i == 0:
-        display_hand(player, is_human=True, label=chips_label)
+        display_hand(player, is_human=True, label=label)
     else:
-        display_hand(player, is_human=False, label=chips_label, reveal=st.session_state.show_opponents)
+        display_hand(player, is_human=False, label=label,
+                     reveal=st.session_state.show_opponents)
+ 
+st.divider()
 
 # End condition/Showdown — check before prompting for actions
 active = [p for p in players if not p.folded]
