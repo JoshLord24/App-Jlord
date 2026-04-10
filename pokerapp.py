@@ -1,5 +1,7 @@
 # ---- POKER APP -------
 
+from unicodedata import name
+
 import streamlit as st
 import random
 from collections import Counter
@@ -8,8 +10,8 @@ from itertools import combinations
 # ----- CORE CLASSES -------
 
 class Card:
-    SUITS = ["♠", "♥", "♦", "♣"]
-    RANKS = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+    SUITS = ["♠️", "♥️", "♦️", "♣️"]
+    RANKS = ["𝟐", "𝟑", "𝟒", "𝟓", "𝟔", "𝟕", "𝟖", "𝟗", "𝟏𝟎", "𝐉", "𝐐", "𝐊", "𝐀"]
 
     def __init__(self, rank, suit):
         self.rank = rank
@@ -25,12 +27,14 @@ class Player:
         self.chips = chips
         self.current_bet = 0
         self.folded = False
-        self.personality = personality  
+        self.personality = personality
+        self.has_acted = False
 
     def reset(self):
         self.hand = []
         self.current_bet = 0
         self.folded = False
+        self.has_acted = False
 
 class Deck:
     rank_orders = {r: i+2 for i, r in enumerate(Card.RANKS)}
@@ -60,7 +64,7 @@ class GameState:
         self.big_blind_amount = big_blind
         self.small_blind_index = (self.dealer + 1) % len(self.players)
         self.big_blind_index = (self.dealer + 2) % len(self.players)
-        
+
         self.current_bet = 0
 
     def new_deck(self):
@@ -90,31 +94,30 @@ class GameState:
     def set_action(self, text):
         self.last_action = text
 
+    def next_player(self):
+        for _ in range(len(self.players)):
+            self.current_player_index = (self.current_player_index + 1) % len(self.players)
+            if not self.players[self.current_player_index].folded:
+                return
+
     def all_players_acted(self):
         active = [p for p in self.players if not p.folded]
-        return all(p.current_bet == self.current_bet for p in active)
-
-    def advance_player(self):
-        start_index = self.current_player_index
-
-        while True:
-            self.current_player_index = (self.current_player_index + 1) % len(self.players)
-            player = self.players[self.current_player_index]
-
-            if not player.folded:
-                break
-
-            if self.current_player_index == start_index:
-                break
-
+        return (
+            all(p.has_acted for p in active)
+            and all(p.current_bet == self.current_bet for p in active)
+        )
 
     def try_advance_phase(self):
         if self.all_players_acted():
             self.advance_phase()
             for p in self.players:
                 p.current_bet = 0
-
+                p.has_acted = False
             self.current_bet = 0
+            self.current_player_index = self.dealer
+            self.next_player()
+        else:
+            self.next_player()
 
     def advance_phase(self):
         phases = ["Preflop", "Flop", "Turn", "River", "Showdown"]
@@ -152,50 +155,34 @@ class HandEvaluator:
         is_flush = len(set(suits)) == 1
         is_straight, high_straight = HandEvaluator.is_straight(values)
 
-        # Straight Flush / Royal Flush
         if is_flush and is_straight:
             if high_straight == 14:
                 return HandEvaluator.hand_ranks["Royal Flush"], [14]
             return HandEvaluator.hand_ranks["Straight Flush"], [high_straight]
-
-        # Four of a Kind
         if 4 in counts.values():
             four = max(k for k, v in counts.items() if v == 4)
             kicker = max(k for k, v in counts.items() if v == 1)
             return HandEvaluator.hand_ranks["Four of a Kind"], [four, kicker]
-
-        # Full House
         if sorted(counts.values()) == [2, 3]:
             three = max(k for k, v in counts.items() if v == 3)
             pair = max(k for k, v in counts.items() if v == 2)
             return HandEvaluator.hand_ranks["Full House"], [three, pair]
-
-        # Flush
         if is_flush:
             return HandEvaluator.hand_ranks["Flush"], values
-
-        # Straight
         if is_straight:
             return HandEvaluator.hand_ranks["Straight"], [high_straight]
-
-        # Three of a Kind
         if 3 in counts.values():
             three = max(k for k, v in counts.items() if v == 3)
             kickers = sorted((k for k, v in counts.items() if v == 1), reverse=True)
             return HandEvaluator.hand_ranks["Three of a Kind"], [three] + kickers
-
-        # Two Pair
         if list(counts.values()).count(2) == 2:
             pairs = sorted((k for k, v in counts.items() if v == 2), reverse=True)
             kicker = max(k for k, v in counts.items() if v == 1)
             return HandEvaluator.hand_ranks["Two Pair"], pairs + [kicker]
-
-        # One Pair
         if 2 in counts.values():
             pair = max(k for k, v in counts.items() if v == 2)
             kickers = sorted((k for k, v in counts.items() if v == 1), reverse=True)
             return HandEvaluator.hand_ranks["One Pair"], [pair] + kickers
-
         return HandEvaluator.hand_ranks["High Card"], values
 
     @staticmethod
@@ -227,9 +214,9 @@ def get_hand_name(score):
         if val == rank_value:
             return name
 
-# ----- CARD DISPLAY ----- 
+# ----- CARD DISPLAY -----
 
-def display_hand(player_or_cards, is_human=False, label=None, reveal=False):
+def display_hand(player_or_cards, is_human=False, label=None, reveal=False, is_community=False):
     if isinstance(player_or_cards, list):
         cards = player_or_cards
         name = label or "Hand"
@@ -238,26 +225,22 @@ def display_hand(player_or_cards, is_human=False, label=None, reveal=False):
         name = getattr(player_or_cards, "name", "Player") if label is None else label
 
     if not cards:
-        st.write(f"{name} has no cards.")
+        if is_community:
+            st.markdown(f"**{name}:** —")
+        else:
+            st.write(f"{name} has no cards.")
         return
 
-    if not is_human and not reveal:
-        hand_str = "🂠 " * len(cards)
-    else:
+    if is_community or is_human or reveal:
         hand_str = " | ".join(str(card) for card in cards)
+    else:
+        hand_str = "🂠 " * len(cards)
 
     st.markdown(f"**{name}:** {hand_str}")
-
-# ----- DISPLAY COMMUNITY CARDS ------
-def display_community_cards():
-    g = st.session_state.game
-    community = g.community_cards or []
-    display_hand(community, label="Community Cards")
 
 # ----- GAME LOGIC --------
 
 def evaluate_strength(player):
-    """0 to 1 based on hand pre-flop"""
     if len(player.hand) < 2:
         return 0
     values = [Deck.rank_orders[c.rank] for c in player.hand]
@@ -266,63 +249,73 @@ def evaluate_strength(player):
         return 0.7
     if suits[0] == suits[1]:
         return 0.4
-    return max(values)/14 * 0.6 + 0.3
+    return max(values) / 14 * 0.6 + 0.3
 
-def next_player():
-    g = st.session_state.game
-    players = st.session_state.players
-    for _ in range(len(players)):
-        g.current_player_index = (g.current_player_index + 1) % len(players)
-        if not players[g.current_player_index].folded:
-            return
 
 def bet(player, amount):
     g = st.session_state.game
+    amount = min(amount, player.chips + player.current_bet)  
     diff = amount - player.current_bet
     player.chips -= diff
-    player.current_bet = player.current_bet + diff
+    player.current_bet = amount
     g.pot += diff
     g.current_bet = max(g.current_bet, amount)
-
+    player.has_acted = True
     g.set_action(f"{player.name} bets {amount}")
-    g.advance_player()
 
 def call(player):
     g = st.session_state.game
-    bet(player, g.current_bet)
+    amount = min(g.current_bet, player.chips + player.current_bet)
+    diff = amount - player.current_bet
+    player.chips -= diff
+    player.current_bet = amount
+    g.pot += diff
+    player.has_acted = True
     g.set_action(f"{player.name} calls")
 
 def check(player):
     g = st.session_state.game
+    player.has_acted = True
     g.set_action(f"{player.name} checks")
-    g.advance_player()
-
 
 def fold(player):
     g = st.session_state.game
     player.folded = True
+    player.has_acted = True
     g.set_action(f"{player.name} folds")
-    g.advance_player()
-
 
 # ----- HAND START ------
+
+def post_blind(player, amount):
+    g = st.session_state.game
+    diff = amount - player.current_bet
+    player.chips -= diff
+    player.current_bet += diff
+    g.pot += diff
+    g.current_bet = max(g.current_bet, amount)
 
 def start_hand():
     g = st.session_state.game
     g.rotate_dealer()
     g.pot = 0
-    g.current_bet = 0  # reset highest bet
+    g.current_bet = 0
     g.deck = g.new_deck()
     g.community_cards = []
-    g.deal_hands()
     g.round_phase = "Preflop"
     g.small_blind_index = (g.dealer + 1) % len(g.players)
     g.big_blind_index = (g.dealer + 2) % len(g.players)
 
+    for p in g.players:
+        p.current_bet = 0
+        p.folded = False
+        p.has_acted = False
 
-    # Post blinds
-    bet(g.players[g.small_blind_index], g.small_blind_amount)
-    bet(g.players[g.big_blind_index], g.big_blind_amount)
+    g.deal_hands()
+    post_blind(g.players[g.small_blind_index], g.small_blind_amount)
+    post_blind(g.players[g.big_blind_index], g.big_blind_amount)
+
+    # Preflop action starts with player after big blind
+    g.current_player_index = (g.big_blind_index + 1) % len(g.players)
 
 # ----- AI ACTION ------
 
@@ -334,141 +327,182 @@ def ai_action(player):
     to_call = g.current_bet - player.current_bet
     pressure = to_call / max(player.chips, 1)
     aggression = random.random()
-    personality = personalities
-    current_bet = g.current_bet
-
-
-    if player.personality == "aggressive": 
-        aggression += 0.2 
+ 
+    if player.personality == "aggressive":
+        aggression = min(aggression + 0.15, 1.0)
     elif player.personality == "passive":
-        aggression -= 0.2
-    if strength > 0.8: # very strong hand
-        if aggression < 0.5:
-            call(player)
-        else:
-            bet(player, g.current_bet + int(player.chips * 0.2))
-    if strength > 0.6: # strong hand
-        if aggression < 0.7:
-            raise_amt = g.current_bet + int(player.chips * 0.1)
-            bet(player, raise_amt)
-        if pressure < 0.2:
-            if aggression < 0.5:
-                bet(player, g.current_bet + int(player.chips * 0.1))
-            else:
-                call(player)
+        aggression = max(aggression - 0.15, 0.0)
+ 
+    if strength >= 0.8:
+        # Premium hand — raise ~50%, otherwise call
+        if aggression >= 0.50:
+            bet(player, g.current_bet + int(player.chips * 0.20))
         else:
             call(player)
-    if strength > 0.4: # eh hand
-        if pressure < 0.1:
+ 
+    elif strength >= 0.65:
+        # Strong hand — call freely; only raise with high aggression
+        if aggression >= 0.8:
+            bet(player, g.current_bet + int(player.chips * 0.10))
+        else:
             call(player)
-        if aggression < 0.5:
+ 
+    elif strength >= 0.5:
+        # Decent hand — call if cheap; fold under pressure
+        if pressure <= 0.15:
+            call(player)
+        elif aggression >= 0.75:
+            call(player)
+        else:
             fold(player)
-        else:
+ 
+    else:
+        # Weak hand — fold unless it's very cheap to call or AI is very aggressive
+        if to_call == 0:
+            check(player)
+        elif pressure <= 0.05:
             call(player)
-    else: # weak hand
-        if pressure > 0.1:
-            fold(player)
         else:
-            if aggression < 0.3:
-                call(player)
-            else:
-                fold(player)
+            fold(player)
 
-# ------------------ STREAMLIT UI ------------------
+# ------ STREAMLIT UI --------
 
-st.title("Poker Game")
+st.title("🃏 Poker Game")
 
-# List of players
-human_player = Player("You")
 
-personalities = ["aggressive", "passive", "normal"]
-
-ai_players = [
-    Player(f"AI {i+1}", personality=random.choice(personalities))
-    for i in range(2)
-]
-all_players = [human_player] + ai_players
-
-# Initialize game if not already
-if "game" not in st.session_state:
-    st.session_state.game = GameState(all_players)
-    st.session_state.game.deal_hands()  # initial deal
+# ----- SIDEBAR SETTINGS -----
+with st.sidebar:
+    st.header("⚙️ Game Settings")
+    num_ai = st.number_input("Number of AI players", min_value=1, max_value=7, value=3, step=1)
+    starting_chips = st.number_input("Starting chips", min_value=100, max_value=100000, value=1000, step=100)
+    small_blind = st.number_input("Small blind", min_value=1, max_value=10000, value=10, step=5)
+    big_blind = st.number_input("Big blind", min_value=2, max_value=10000, value=20, step=5)
+ 
+    if st.button("🆕 New Game", use_container_width=True):
+        human = Player("You", chips=int(starting_chips))
+        ais = [
+            Player(f"AI {i+1}", chips=int(starting_chips),
+                   personality=random.choice(["aggressive", "passive", "normal"]))
+            for i in range(int(num_ai))
+        ]
+        st.session_state.players = [human] + ais
+        st.session_state.game = GameState(
+            st.session_state.players,
+            small_blind=int(small_blind),
+            big_blind=int(big_blind),
+        )
+        st.session_state.show_opponents = False
+        st.rerun()
 
 if "players" not in st.session_state:
-    st.session_state.players = all_players
+    human_player = Player("You")
+    ai_players = [
+        Player(f"AI {i+1}", chips=1000,
+               personality=random.choice(["aggressive", "passive", "normal"]))
+        for i in range(3)
+    ]
+    st.session_state.players = [human_player] + ai_players
 
-if "current_turn" not in st.session_state:
-    st.session_state.current_turn = 0
+if "game" not in st.session_state:
+    st.session_state.game = GameState(st.session_state.players)
 
-game = st.session_state.game
-
-for i, player in enumerate(game.players):
-    if i == 0:
-        display_hand(player, is_human=True)
-    else:
-        # Only reveal at showdown
-        display_hand(player, is_human=False, reveal=(game.round_phase == "Showdown"))
+if "show_opponents" not in st.session_state:
+    st.session_state.show_opponents = False
 
 g = st.session_state.game
+
+if g is None:
+    st.error("Game not initialized")
+    st.stop()
+
 players = st.session_state.players
+human_player = players[0]
 
+
+# Controls to start hand and toggle opponent card visibility
 col1, col2 = st.columns(2)
-if col1.button("Start Hand"):
+if col1.button("▶️ Start Hand", use_container_width=True):
     start_hand()
-if col2.button("Show Opponent Cards"):
-    g.show_opponents = not g.show_opponents
-
-g = st.session_state.game
+    st.rerun()
+if col2.button("👁️ Toggle Opponent Cards", use_container_width=True):
+    st.session_state.show_opponents = not st.session_state.show_opponents
+    st.rerun()
 
 st.header(f"Phase: {g.round_phase}")
-st.subheader(f"Current Turn: {g.current_player().name}")
 st.write(f"Last Action: {g.last_action}")
 st.write(f"Pot: {g.pot}")
 
-# Community cards
 display_hand(g.community_cards, label="Community Cards")
 
-# Player hands
-for i, player in enumerate(g.players):
+for i, player in enumerate(players):
+    chips_label = f"{player.name} (chips: {player.chips}, bet: {player.current_bet})"
+    if player.folded:
+        chips_label += " [FOLDED]"
     if i == 0:
-        display_hand(player, is_human=True)
+        display_hand(player, is_human=True, label=chips_label)
     else:
-        st.markdown(f"**{player.name}'s hand:** 🂠 🂠")  # hide AI hands until showdown
+        display_hand(player, is_human=False, label=chips_label, reveal=st.session_state.show_opponents)
+
+# End condition/Showdown — check before prompting for actions
+active = [p for p in players if not p.folded]
+if len(active) == 1:
+    st.success(f"{active[0].name} wins {g.pot}!")
+    st.stop()
+
+if g.round_phase == "Showdown":
+    st.subheader("Showdown!")
+    results = []
+    for p in active:
+        score, best = HandEvaluator.best_hand(p.hand + g.community_cards)
+        results.append((p, score, best))
+    results.sort(key=lambda x: x[1], reverse=True)
+    winner = results[0][0]
+    winner.chips += g.pot
+    for p, score, best in results:
+        hand_name = get_hand_name(score)
+        cards_str = " | ".join(str(c) for c in best)
+        st.write(f"**{p.name}**: {hand_name} — {cards_str}")
+    st.success(f"🏆 {winner.name} wins {g.pot} chips!")
+    st.stop()
+
+current = g.current_player()
+st.subheader(f"Current Turn: {current.name}")
+
+if current != human_player:
+    while g.current_player() != human_player:
+        ai = g.current_player()
+        if not ai.folded:
+            ai_action(ai)
+        g.try_advance_phase()
+        # Break early if the hand is over or we've reached showdown
+        active_check = [p for p in players if not p.folded]
+        if len(active_check) == 1 or g.round_phase == "Showdown":
+            break
+    st.rerun()
 
 # Player action buttons
 st.subheader("Your Actions")
+to_call = g.current_bet - human_player.current_bet
+cols = st.columns(4)
 
-current = g.current_player()
+can_check = to_call == 0
+if cols[0].button("Check", disabled=not can_check):
+    check(human_player)
+    g.try_advance_phase()
+    st.rerun()
 
-current = g.players[st.session_state.current_turn]
+if cols[1].button(f"Call {to_call}", disabled=to_call == 0):
+    call(human_player)
+    g.try_advance_phase()
+    st.rerun()
 
-if current == human_player:
-    cols = st.columns(4)
-    if cols[0].button("Check"):
-        check(human_player)
-        g.try_advance_phase()
-        st.session_state.current_turn = g.current_player_index
-    if cols[1].button("Call"):
-        call(human_player)
-        g.try_advance_phase()
-        st.session_state.current_turn = g.current_player_index
-    if cols[2].button("Raise"):
-        bet(human_player, g.current_bet + 20)
-        g.try_advance_phase()
-        st.session_state.current_turn = g.current_player_index
-    if cols[3].button("Fold"):
-        fold(human_player)
-        g.try_advance_phase()
-        st.session_state.current_turn = g.current_player_index
-else:
-    # Only act if it’s AI’s turn
-    if not current.folded:
-        ai_action(current)
-        g.try_advance_phase()
-        st.session_state.current_turn = g.current_player_index
+if cols[2].button("Raise"):
+    raise_amount = input("Raise Amount", value=20, step=10)
+    bet(human_player, g.current_bet + raise_amount)
+    g.try_advance_phase()
+    st.rerun()
 
-
-# End condition
-active = [p for p in g.players if not p.folded]
-if len(active) == 1:
-    st.success(f"{active[0].name} wins {g.pot}!")
+if cols[3].button("Fold"):
+    fold(human_player)
+    g.try_advance_phase()
+    st.rerun()
