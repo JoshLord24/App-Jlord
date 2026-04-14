@@ -6,6 +6,7 @@ import streamlit as st
 import random
 from collections import Counter
 from itertools import combinations
+import streamlit.components.v1 as components
 
 # ----- CORE CLASSES -------
 
@@ -260,7 +261,6 @@ def evaluate_strength(player):
     return base + suited_bonus + connected_bonus
 
 
-
 def bet(player, amount):
     g = st.session_state.game
     amount = min(amount, player.chips + player.current_bet)  
@@ -292,6 +292,17 @@ def fold(player):
     player.folded = True
     player.has_acted = True
     g.set_action(f"{player.name} folds")
+
+def all_in(player):
+    g = st.session_state.game
+    amount = player.chips + player.current_bet
+    diff = amount - player.current_bet
+    player.chips -= diff
+    player.current_bet = amount
+    g.pot += diff
+    g.current_bet = max(g.current_bet, amount)
+    player.has_acted = True
+    g.set_action(f"{player.name} goes ALL IN with {amount}")
 
 # ----- HAND START ------
 
@@ -460,7 +471,7 @@ for i, player in enumerate(players):
     elif i == g.big_blind_index:
         role = " (Big Blind)"
 
-    label = f"{player.name}{status} — chips: {player.chips}  |  bet: {player.current_bet}"
+    label = f"{player.name}{role}{status} — chips: {player.chips}  |  bet: {player.current_bet}"
     if i == 0:
         display_hand(player, is_human=True, label=label)
     else:
@@ -509,7 +520,10 @@ if current != human_player:
 # Player buttons
 st.subheader("Your Actions")
 to_call = g.current_bet - human_player.current_bet
-cols = st.columns(4)
+can_raise = human_player.chips > to_call
+
+
+cols = st.columns(5)
 
 can_check = to_call == 0
 if cols[0].button("Check", disabled=not can_check):
@@ -522,12 +536,32 @@ if cols[1].button(f"Call {to_call}", disabled=to_call == 0):
     g.try_advance_phase()
     st.rerun()
 
-raise_amount = st.number_input("Raise amount", min_value=g.big_blind_amount, max_value=human_player.chips, value=g.big_blind_amount * 2, step=g.big_blind_amount, key="raise_input")
-if cols[2].button("Raise"):
-    bet(human_player, g.current_bet + raise_amount)
-    g.try_advance_phase()
-    st.rerun()
+if can_raise:
+    min_raise = g.big_blind_amount
+    max_raise = human_player.chips
+    default_raise = min(g.big_blind_amount * 2, max_raise)  # clamp default to max
+
+    raise_amount = st.number_input(
+        "Raise amount",
+        min_value=min_raise,
+        max_value=max_raise,
+        value=default_raise,
+        step=g.big_blind_amount,
+        key="raise_input"
+    )
+    if cols[2].button(f"Raise to {raise_amount}", use_container_width=True):
+        bet(human_player, raise_amount)
+        g.try_advance_phase()
+        st.rerun()
+else:
+    cols[2].button("Raise", disabled=True, use_container_width=True)
+
 if cols[3].button("Fold"):
     fold(human_player)
+    g.try_advance_phase()
+    st.rerun()
+
+if cols[4].button("🔥 All In", disabled=human_player.chips == 0):
+    all_in(human_player)
     g.try_advance_phase()
     st.rerun()
