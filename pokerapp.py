@@ -242,13 +242,23 @@ def display_hand(player_or_cards, is_human=False, label=None, reveal=False, is_c
 def evaluate_strength(player):
     if len(player.hand) < 2:
         return 0
-    values = [Deck.rank_orders[c.rank] for c in player.hand]
+    values = sorted([Deck.rank_orders[c.rank] for c in player.hand])
     suits = [c.suit for c in player.hand]
-    if values[0] == values[1]:
-        return 0.7
-    if suits[0] == suits[1]:
-        return 0.4
-    return max(values) / 14 * 0.6 + 0.3
+    high_card = values[1]
+    low_card = values[0]
+    is_pair = values[0] == values[1]
+    is_suited = suits[0] == suits[1]
+
+    if is_pair:
+        return 0.50 + (high_card - 2) / 12 * 0.45
+    
+    base = (high_card * .7 + low_card * .3) / 14
+    # Adds a boost for suited cards
+    suited_bonus = 0.05 * (high_card / 14) if is_suited else 0
+    # Adds a boost for connectors (cards touching in rank)
+    connected_bonus = 0.03 if (high_card - low_card) <= 2 else 0.0
+    return base + suited_bonus + connected_bonus
+
 
 
 def bet(player, amount):
@@ -431,7 +441,7 @@ st.write(f"Last Action: {g.last_action}")
 st.write(f"Pot: {g.pot}")
 
 display_hand(g.community_cards, label="Community Cards", is_community=True)
- 
+
 st.divider()
  
 # Player hands
