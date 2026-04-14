@@ -102,10 +102,11 @@ class GameState:
 
     def all_players_acted(self):
         active = [p for p in self.players if not p.folded]
-        return (
-            all(p.has_acted for p in active)
-            and all(p.current_bet == self.current_bet for p in active)
-        )
+        bets_equal = all(p.current_bet == self.current_bet for p in active)
+        all_acted = all(p.has_acted for p in active)
+        if self.round_phase == "Preflop" and bets_equal and not all_acted:
+            return False
+        return all_acted and bets_equal
 
     def try_advance_phase(self):
         if self.all_players_acted():
@@ -114,7 +115,7 @@ class GameState:
                 p.current_bet = 0
                 p.has_acted = False
             self.current_bet = 0
-            self.current_player_index = self.dealer
+            self.current_player_index = self.dealer % len(self.players)
             self.next_player()
         else:
             self.next_player()
@@ -229,13 +230,12 @@ def display_hand(player_or_cards, is_human=False, label=None, reveal=False, is_c
         st.markdown(f"**{name}:** {placeholder}", unsafe_allow_html=True)
         return
  
-    # Community cards are ALWAYS shown face-up; human cards always shown;
-    # AI cards hidden unless reveal=True
     if is_community or is_human or reveal:
-        hand_str = "  ".join(Card(c) for c in cards)
-        st.markdown(f"**{name}:** {hand_str}", unsafe_allow_html=True)
+        cards_str = " | ".join(str(c) for c in cards)
+        st.markdown(f"**{name}:** {cards_str}", unsafe_allow_html=True)
     else:
-        st.markdown(f"**{name}:** {'🂠 ' * len(cards)}")
+        cards_str = " | ".join("🂠" for _ in cards)
+        st.markdown(f"**{name}:** {cards_str}", unsafe_allow_html=True)
 
 # ----- GAME LOGIC --------
 
@@ -313,7 +313,6 @@ def start_hand():
     post_blind(g.players[g.small_blind_index], g.small_blind_amount)
     post_blind(g.players[g.big_blind_index], g.big_blind_amount)
 
-    # Preflop action starts with player after big blind
     g.current_player_index = (g.big_blind_index + 1) % len(g.players)
 
 # ----- AI ACTION ------
@@ -366,7 +365,7 @@ def ai_action(player):
 
 # ------ STREAMLIT UI --------
 
-st.title("🃏 Poker Game")
+st.title("♥️♠️ Texas Hold'em ♣️♦️")
 
 
 # ----- SIDEBAR SETTINGS -----
@@ -374,8 +373,8 @@ with st.sidebar:
     st.header("⚙️ Game Settings")
     num_ai = st.number_input("Number of AI players", min_value=1, max_value=7, value=3, step=1)
     starting_chips = st.number_input("Starting chips", min_value=100, max_value=100000, value=1000, step=100)
-    small_blind = st.number_input("Small blind", min_value=1, max_value=10000, value=10, step=5)
-    big_blind = st.number_input("Big blind", min_value=2, max_value=10000, value=20, step=5)
+    small_blind = st.number_input("Small blind", min_value=1, max_value=10000, value=10, step=10)
+    big_blind = st.number_input("Big blind", min_value=2, max_value=10000, value=20, step=20)
  
     if st.button("🆕 New Game", use_container_width=True):
         human = Player("You", chips=int(starting_chips))
@@ -442,6 +441,15 @@ for i, player in enumerate(players):
         status = " 🚫 FOLDED"
     elif g.current_player() == player:
         status = " ⬅ current turn"
+
+    role = ""
+    if i == g.dealer:
+        role = " (🃏 Dealer)"
+    elif i == g.small_blind_index:
+        role = " (Small Blind)"
+    elif i == g.big_blind_index:
+        role = " (Big Blind)"
+
     label = f"{player.name}{status} — chips: {player.chips}  |  bet: {player.current_bet}"
     if i == 0:
         display_hand(player, is_human=True, label=label)
@@ -488,7 +496,7 @@ if current != human_player:
             break
     st.rerun()
 
-# Player action buttons
+# Player buttons
 st.subheader("Your Actions")
 to_call = g.current_bet - human_player.current_bet
 cols = st.columns(4)
@@ -504,12 +512,11 @@ if cols[1].button(f"Call {to_call}", disabled=to_call == 0):
     g.try_advance_phase()
     st.rerun()
 
+raise_amount = st.number_input("Raise amount", min_value=g.big_blind_amount, max_value=human_player.chips, value=g.big_blind_amount * 2, step=g.big_blind_amount, key="raise_input")
 if cols[2].button("Raise"):
-    raise_amount = input("Raise Amount", value=20, step=10)
     bet(human_player, g.current_bet + raise_amount)
     g.try_advance_phase()
     st.rerun()
-
 if cols[3].button("Fold"):
     fold(human_player)
     g.try_advance_phase()
