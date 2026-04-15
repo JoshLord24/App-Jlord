@@ -353,7 +353,7 @@ def ai_action(player):
         aggression = max(aggression - 0.15, 0.0)
  
     if strength >= 0.8:
-        # Premium hand — raise ~50%, otherwise call
+        # Premium hand — raise 50%, otherwise call
         if aggression >= 0.50:
             bet(player, g.current_bet + int(player.chips * 0.20))
         else:

@@ -6,8 +6,8 @@ import random
 # Deck of cards
 class Deck: 
     def __init__(self):
-        self.suits = ["Hearts", "Diamonds", "Clubs", "Spades"]
-        self.ranks = ["2", "3", "4", "5", "6", "7", "8", "9", "10", "J", "Q", "K", "A"]
+        self.suits = ["♠️", "♥️", "♦️", "♣️"]
+        self.ranks = ["𝟐", "𝟑", "𝟒", "𝟓", "𝟔", "𝟕", "𝟖", "𝟗", "𝟏𝟎", "𝐉", "𝐐", "𝐊", "𝐀"]
         self.cards = [f"{rank} of {suit}" for suit in self.suits for rank in self.ranks]
 
 
