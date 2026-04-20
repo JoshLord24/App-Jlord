@@ -30,6 +30,7 @@ class Player:
         self.folded = False
         self.personality = personality
         self.has_acted = False
+        self.bluff_tendency = {"aggressive": 0.30, "passive": 0.05, "normal": 0.15}.get(personality, 0.15)
 
     def reset(self):
         self.hand = []
