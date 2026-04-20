@@ -66,7 +66,7 @@ class GameState:
         self.big_blind_amount = big_blind
         self.small_blind_index = (self.dealer + 1) % len(self.players)
         self.big_blind_index = (self.dealer + 2) % len(self.players)
-
+        self.last_raise_increment = big_blind
         self.current_bet = 0
 
     def new_deck(self):
@@ -117,6 +117,7 @@ class GameState:
                 p.current_bet = 0
                 p.has_acted = False
             self.current_bet = 0
+            self.last_raise_increment = big_blind
             self.current_player_index = self.dealer % len(self.players)
             self.next_player()
         else:
@@ -314,6 +315,8 @@ def bet(player, amount):
     g = st.session_state.game
     amount = min(amount, player.chips + player.current_bet)  
     diff = amount - player.current_bet
+    if amount > g.current_bet:
+        g.last_raise_increment = amount - g.current_bet
     player.chips -= diff
     player.current_bet = amount
     g.pot += diff
@@ -346,6 +349,8 @@ def all_in(player):
     g = st.session_state.game
     amount = player.chips + player.current_bet
     diff = amount - player.current_bet
+    if amount > g.current_bet:
+        g.last_raise_increment = amount - g.current_bet
     player.chips -= diff
     player.current_bet = amount
     g.pot += diff
@@ -368,6 +373,7 @@ def start_hand():
     g.rotate_dealer()
     g.pot = 0
     g.current_bet = 0
+    g.last_raise_increment = big_blind
     g.deck = g.new_deck()
     g.community_cards = []
     g.round_phase = "Preflop"
@@ -740,10 +746,13 @@ if cols[1].button(f"Call {to_call}", disabled=to_call == 0):
     g.try_advance_phase()
     st.rerun()
 
+min_raise_to = g.current_bet + g.last_raise_increment
+min_raise = max(min_raise_to - human_player.current_bet, 1)
+can_raise = human_player.chips > min_raise
+
 if can_raise:
-    min_raise = to_call * 2 if to_call > 0 else g.big_blind_amount
     max_raise = human_player.chips
-    default_raise = min(g.big_blind_amount * 2, max_raise)
+    default_raise = max(min_raise, min(min_raise * 2, max_raise))
 
     raise_amount = st.number_input(
         "Raise amount",
@@ -755,6 +764,7 @@ if can_raise:
     )
     if cols[2].button(f"Raise to {raise_amount}", use_container_width=True):
         bet(human_player, raise_amount)
+        g.last_raise_increment = raise_amount - g.current_bet  # track the increment
         g.try_advance_phase()
         st.rerun()
 else:
