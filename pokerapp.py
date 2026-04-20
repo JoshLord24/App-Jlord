@@ -424,7 +424,7 @@ def build_table_html(g, players, show_opponents):
     seat_positions = [
         "top:-68px;left:50%;transform:translateX(-50%)",   # top center
         "top:-24px;right:-48px",                           # top right
-        "bottom:-24px;right:-88px",                        # bot right
+        "bottom:-24px;right:-68px",                        # bot right
         "top:-24px;left:-48px",                            # top left
         "bottom:-24px;left:-68px",                         # bot left
         "bottom:-68px;left:25%;transform:translateX(-50%)", # bot left-center (6+ players)
