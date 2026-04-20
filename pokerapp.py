@@ -240,26 +240,74 @@ def display_hand(player_or_cards, is_human=False, label=None, reveal=False, is_c
 
 # ----- GAME LOGIC --------
 
-def evaluate_strength(player):
-    if len(player.hand) < 2:
-        return 0
-    values = sorted([Deck.rank_orders[c.rank] for c in player.hand])
-    suits = [c.suit for c in player.hand]
-    high_card = values[1]
-    low_card = values[0]
-    is_pair = values[0] == values[1]
+# Evaluates hand preflop on a 0-1 scale 
+def evaluate_preflop_strength(hand):
+    if len(hand) < 2:
+        return 0.0
+    vals = sorted([Deck.rank_orders[c.rank] for c in hand], reverse=True)
+    suits = [c.suit for c in hand]
+    hi, lo = vals[0], vals[1]
+    is_pair = hi == lo
     is_suited = suits[0] == suits[1]
-
+    gap = hi - lo
+ 
     if is_pair:
-        return 0.50 + (high_card - 2) / 12 * 0.45
-    
-    base = (high_card * .7 + low_card * .3) / 14
-    # Adds a boost for suited cards
-    suited_bonus = 0.05 * (high_card / 14) if is_suited else 0
-    # Adds a boost for connectors (cards touching in rank)
-    connected_bonus = 0.03 if (high_card - low_card) <= 2 else 0.0
-    return base + suited_bonus + connected_bonus
+        return 0.55 + (hi - 2) / 12 * 0.45
+ 
+    if hi == 14:
+        if lo >= 13: return 0.92  # AK
+        if lo >= 12: return 0.82  # AQ
+        if lo >= 11: return 0.75  # AJ
+        if lo >= 10: return 0.70  # AT
+        base = 0.55 + (lo - 2) / 12 * 0.12
+        return base + (0.04 if is_suited else 0)
+ 
+    if lo >= 10:
+        base = 0.55 + (lo - 10) / 4 * 0.15 + (hi - lo - 1) * 0.02
+        return min(base + (0.04 if is_suited else 0), 0.78)
+ 
+    suited_bonus = 0.06 if is_suited else 0.0
+    connector_bonus = max(0, (4 - gap) * 0.02)
+    base = (hi * 0.65 + lo * 0.35) / 14 * 0.55
+    return min(base + suited_bonus + connector_bonus, 0.60)
 
+# Evaluates hand strength postflop, returning made hand strength, draw potential, and hand rank
+def evaluate_postflop_strength(player, community_cards):
+    if not community_cards or len(player.hand) < 2:
+        return evaluate_preflop_strength(player.hand), 0.0, 0
+ 
+    all_cards = player.hand + community_cards
+    score, _ = HandEvaluator.best_hand(all_cards)
+    hand_rank = score[0]
+ 
+    made_map = {1: 0.15, 2: 0.35, 3: 0.50, 4: 0.62,
+                5: 0.72, 6: 0.80, 7: 0.88, 8: 0.94, 9: 0.97, 10: 1.0}
+    made_strength = made_map.get(hand_rank, 0.15)
+ 
+    draw_strength = 0.0
+    all_suits = [c.suit for c in all_cards]
+    all_vals = sorted(set(Deck.rank_orders[c.rank] for c in all_cards), reverse=True)
+ 
+    for suit in set(all_suits):
+        if all_suits.count(suit) == 4 and hand_rank < 6:
+            draw_strength = max(draw_strength, 0.18)
+ 
+    for i in range(len(all_vals) - 3):
+        if all_vals[i] - all_vals[i + 3] == 3 and hand_rank < 5:
+            draw_strength = max(draw_strength, 0.15)
+        if all_vals[i] - all_vals[i + 3] == 4 and hand_rank < 5:
+            draw_strength = max(draw_strength, 0.08)
+ 
+    return made_strength, draw_strength, hand_rank
+
+# Combines the made hand strength and draw potential into a single 0-1 score for 
+# AI decision-making, with dynamic weighting based on preflop/postflop phase
+def evaluate_strength(player, community_cards=None):
+    if not community_cards:
+        return evaluate_preflop_strength(player.hand)
+    made, draw, _ = evaluate_postflop_strength(player, community_cards)
+    draw_weight = {3: 0.7, 4: 0.4, 5: 0.0}.get(len(community_cards), 0.0)
+    return min(made + draw * draw_weight, 1.0)
 
 def bet(player, amount):
     g = st.session_state.game
@@ -344,43 +392,100 @@ def ai_action(player):
     g = st.session_state.game
     strength = evaluate_strength(player)
     to_call = g.current_bet - player.current_bet
+    active   = [p for p in g.players if not p.folded]
+    n_active = len(active)
+
+    pot_odds = to_call / (g.pot + to_call) if to_call > 0 else 0
     pressure = to_call / max(player.chips, 1)
-    aggression = random.random()
- 
+    # Stack-to-pot ratio: low SPR = commit or fold, high SPR = more cautious
+    spr = player.chips / max(g.pot, 1)
+    facing_raise = g.current_bet > g.big_blind_amount
+    aggressors = sum(1 for p in g.players if not p.folded and p.current_bet == g.current_bet and p != player)
+    player_idx  = g.players.index(player)
+    dealer_idx  = g.dealer
+    n           = len(g.players)
+    pos_order   = (player_idx - dealer_idx) % n       # 0=dealer (best), n-1=BB (worst pre)
+    in_position = pos_order <= n // 2                  # acting in latter half of table
+
+    roll = random.random()
     if player.personality == "aggressive":
-        aggression = min(aggression + 0.15, 1.0)
+        roll = min(roll + 0.18, 1.0)
     elif player.personality == "passive":
-        aggression = max(aggression - 0.15, 0.0)
+        roll = max(roll - 0.18, 0.0)
  
-    if strength >= 0.8:
-        # Premium hand — raise 50%, otherwise call
-        if aggression >= 0.50:
-            bet(player, g.current_bet + int(player.chips * 0.20))
+    # Bluff opportunity: draw-heavy or last-to-act with no callers showing strength
+    bluff_roll = random.random()
+    is_bluffing = (bluff_roll < player.bluff_tendency and to_call == 0 and in_position)
+
+    def raise_size(fraction):
+        amount = g.current_bet + max(int(g.pot * fraction), g.big_blind_amount)
+        return min(amount, player.chips + player.current_bet)
+
+
+# Premium Hands (Queens+)
+    if strength >= 0.82:
+        if to_call == 0:
+            size = 0.75 if spr > 5 else 1.0
+            bet(player, raise_size(size))
+        elif facing_raise and aggressors >= 2:
+            bet(player, raise_size(1.0))
+        elif roll >= 0.30:
+            bet(player, raise_size(0.75))
         else:
             call(player)
  
+# Strong Hands (Two Pair+ or good draws)
     elif strength >= 0.65:
-        # Strong hand — call freely; only raise with high aggression
-        if aggression >= 0.8:
-            bet(player, g.current_bet + int(player.chips * 0.10))
+        # Pot odds: call if equity clearly beats cost
+        if to_call == 0:
+            if roll >= 0.50:
+                bet(player, raise_size(0.60))
+            else:
+                check(player)
+        elif pot_odds < strength - 0.10:
+            # Good price — call or raise
+            if facing_raise and roll >= 0.65:
+                bet(player, raise_size(0.80))
+            else:
+                call(player)
+        elif pressure > 0.40 and spr < 3:
+            # Low SPR + facing big bet: commit or fold
+            if strength >= 0.72:
+                all_in(player)
+            else:
+                fold(player)
         else:
             call(player)
- 
-    elif strength >= 0.5:
-        # Decent hand — call if cheap; fold under pressure
-        if pressure <= 0.15:
-            call(player)
-        elif aggression >= 0.75:
-            call(player)
+
+# Medium Hand (pairs and draws)
+    elif strength >= 0.45:
+        if to_call == 0:
+            if is_bluffing:
+                bet(player, raise_size(0.50))
+            elif roll >= 0.60 and in_position:
+                bet(player, raise_size(0.40))
+            else:
+                check(player)
+        elif pot_odds < strength:
+            if facing_raise and aggressors >= 2 and pressure > 0.25:
+                fold(player) 
+            else:
+                call(player)
+        elif pressure <= 0.12:
+            call(player) 
         else:
             fold(player)
  
+# Weak hands: mostly fold, but occasionally bluff in position or call very cheap bets
     else:
-        # Weak hand — fold unless it's very cheap to call or AI is very aggressive
         if to_call == 0:
-            check(player)
-        elif pressure <= 0.05:
-            call(player)
+            if is_bluffing and in_position and n_active <= 2:
+                # Pure bluff heads-up in position
+                bet(player, raise_size(0.60))
+            else:
+                check(player)
+        elif pressure <= 0.04 and pot_odds < 0.15:
+            call(player)  # nearly free look
         else:
             fold(player)
 
@@ -635,9 +740,9 @@ if cols[1].button(f"Call {to_call}", disabled=to_call == 0):
     st.rerun()
 
 if can_raise:
-    min_raise = g.big_blind_amount
+    min_raise = to_call * 2 if to_call > 0 else g.big_blind_amount
     max_raise = human_player.chips
-    default_raise = min(g.big_blind_amount * 2, max_raise)  # clamp default to max
+    default_raise = min(g.big_blind_amount * 2, max_raise)
 
     raise_amount = st.number_input(
         "Raise amount",
