@@ -32,6 +32,10 @@ class Player:
         self.has_acted = False
         self.bluff_tendency = {"aggressive": 0.30, "passive": 0.05, "normal": 0.15}.get(personality, 0.15)
 
+    @property
+    def is_all_in(self):
+        return self.chips == 0 and not self.folded and self.has_acted
+
     def reset(self):
         self.hand = []
         self.current_bet = 0
@@ -69,6 +73,18 @@ class GameState:
         self.last_raise_increment = big_blind
         self.current_bet = 0
 
+    def reset_for_new_hand(self):
+        self.pot = 0
+        self.community_cards = []
+        self.round_phase = "Preflop"
+        self.betting_round_complete = False
+        self.deck = self.new_deck()
+        for p in self.players:
+            p.reset()
+
+    def set_action(self, text):
+        self.last_action = text
+
     def new_deck(self):
         deck = [Card(rank, suit) for suit in Card.SUITS for rank in Card.RANKS]
         random.shuffle(deck)
@@ -99,17 +115,29 @@ class GameState:
     def next_player(self):
         for _ in range(len(self.players)):
             self.current_player_index = (self.current_player_index + 1) % len(self.players)
-            if not self.players[self.current_player_index].folded:
+            p = self.players[self.current_player_index]
+            if not p.folded and not p.is_all_in:
                 return
 
     def all_players_acted(self):
         active = [p for p in self.players if not p.folded]
-        bets_equal = all(p.current_bet == self.current_bet for p in active)
+        can_act = [p for p in active if not p.is_all_in]
+        bets_equal = all(
+            p.current_bet == self.current_bet or p.is_all_in
+            for p in active
+            )
+        all_acted = all(p.has_acted for p in active)
+        if self.round_phase == "Preflop" and bets_equal and not all_acted:
+            bb_player = self.players[self.big_blind_index]
+            if not bb_player.folded and not bb_player.is_all_in and not bb_player.has_acted:
+                return False
         all_acted = all(p.has_acted for p in active)
         if self.round_phase == "Preflop" and bets_equal and not all_acted:
             return False
+        if not can_act:
+            return True
         return all_acted and bets_equal
-
+    
     def try_advance_phase(self):
         if self.all_players_acted():
             self.advance_phase()
@@ -347,16 +375,22 @@ def fold(player):
 
 def all_in(player):
     g = st.session_state.game
-    amount = player.chips + player.current_bet
-    diff = amount - player.current_bet
-    if amount > g.current_bet:
-        g.last_raise_increment = amount - g.current_bet
-    player.chips -= diff
-    player.current_bet = amount
+    total_commitment = player.chips + player.current_bet
+    diff = player.chips  
+    old_bet = g.current_bet
+    player.current_bet = total_commitment
+    player.chips = 0
     g.pot += diff
-    g.current_bet = max(g.current_bet, amount)
+    if total_commitment > old_bet:
+        increment = total_commitment - old_bet
+        if hasattr(g, "last_raise_increment"):
+            g.last_raise_increment = max(increment, g.big_blind_amount)
+        g.current_bet = total_commitment
+        for p in g.players:
+            if not p.folded and not p.is_all_in and p != player and p.current_bet < g.current_bet:
+                p.has_acted = False
     player.has_acted = True
-    g.set_action(f"{player.name} goes ALL IN with {amount}")
+    g.set_action(f"{player.name} goes ALL IN for {total_commitment}!")
 
 # ----- HAND START ------
 
@@ -427,9 +461,8 @@ def ai_action(player):
     def raise_size(fraction):
         amount = g.current_bet + max(int(g.pot * fraction), g.big_blind_amount)
         return min(amount, player.chips + player.current_bet)
-
-
-# Premium Hands (Queens+)
+    
+# Premium Hands (Jacks+)
     if strength >= 0.82:
         if to_call == 0:
             size = 0.75 if spr > 5 else 1.0
@@ -679,7 +712,6 @@ if g is None:
 players = st.session_state.players
 human_player = players[0]
 
-
 # Controls to start hand and toggle opponent card visibility
 col1, col2 = st.columns(2)
 if col1.button("▶ Start Hand", use_container_width=True):
@@ -698,11 +730,12 @@ if len(active) == 1:
     st.stop()
 
 if g.round_phase == "Showdown":
-    st.subheader("Showdown!")
+    st.subheader("Showdown:")
     results = []
     for p in active:
         score, best = HandEvaluator.best_hand(p.hand + g.community_cards)
         results.append((p, score, best))
+        display_hand(p, is_human=(p == human_player), label=p.name, reveal=True)
     results.sort(key=lambda x: x[1], reverse=True)
     winner = results[0][0]
     winner.chips += g.pot
@@ -731,7 +764,6 @@ if current != human_player:
 st.subheader("Your Actions")
 to_call = g.current_bet - human_player.current_bet
 can_raise = human_player.chips > to_call
-
 
 cols = st.columns(5)
 
